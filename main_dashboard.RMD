@@ -1,0 +1,576 @@
+---
+title: "Lançamentos de jogos ao longo do tempo"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme : flatly 
+---
+
+<style type="text/css">
+
+.chart-title {  /* chart_title  */
+   font-size: 25px;
+   font-family: Arial;
+   align: center;
+   }
+   
+
+}
+
+</style>
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+if( !require( dplyr ) ){ install.packages("dplyr", repos = "http://cran-r.c3sl.ufpr.br"); library( dplyr ); }
+if( !require( tidyverse ) ){ install.packages("tidyverse", repos = "http://cran-r.c3sl.ufpr.br"); library( tidyverse ); }
+if( !require( highcharter ) ){ install.packages("highcharter", repos = "http://cran-r.c3sl.ufpr.br"); library( highcharter ); }
+if( !require( bizdays ) ){ install.packages("bizdays", repos = "http://cran-r.c3sl.ufpr.br"); library( bizdays ); }
+if( !require( stringr ) ){ install.packages("stringr", repos = "http://cran-r.c3sl.ufpr.br"); library( stringr ); }
+if( !require( tidyr ) ){ install.packages("tidyr", repos = "http://cran-r.c3sl.ufpr.br"); library( tidyr ); }
+if( !require( DT ) ){ install.packages("DT", repos = "http://cran-r.c3sl.ufpr.br"); library( DT ); }
+if( !require( openxlsx ) ){ install.packages("openxlsx", repos = "http://cran-r.c3sl.ufpr.br"); library( openxlsx ); }
+if( !require( wordcloud2 ) ){ install.packages("wordcloud2", repos = "http://cran-r.c3sl.ufpr.br"); library( wordcloud2 ); }
+Sys.setlocale("LC_TIME","pt_BR.UTF-8") 
+#####################################################################################################################
+lang <- getOption("highcharter.lang")
+lang$shortMonths <- c("Jan","Fev","Mar","Abril","Maio","Jun","Julho","Ago","Set","Out","Nov","Dec")
+lang$months <- c("Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro")
+options(highcharter.lang = lang)
+#####################################################################################################################
+options(scipen = 999)
+dados_steam <- read.xlsx("DataMart/steam.xlsx")
+
+dados_steam$data_lancamento <- as.Date(dados_steam$data_lancamento)
+backup <- dados_steam
+total_jogos <- nrow(dados_steam)
+total_w <- dados_steam %>% filter(windows == "windows")
+total_l <- dados_steam %>% filter(linux == "linux")
+total_m <- dados_steam %>% filter(mac == "mac")
+cores <- read.csv("DataMart/cores.csv")
+cores <- c(cores$cor)
+
+```
+
+
+Resumo 
+===================================== 
+Row 
+-----------------------------------------------------------------
+### <b>Jogos Lançados</b>
+```{r}
+valueBox(total_jogos, icon = "ion-steam", color = "#4169E1")
+```
+
+### <b>Jogos para Windonws</b>
+```{r}
+valueBox(nrow(total_w), icon = "ion-social-windows", color = "#2E8B57")
+```
+
+### <b>Jogos para Linux</b>
+```{r}
+valueBox(nrow(total_l), icon = "ion-social-tux", color = "#A9A9A9")
+```
+
+### <b>Jogos para Mac</b>
+```{r}
+valueBox(nrow(total_m),icon = "ion-social-apple", color = "#A020F0")
+```
+
+Row 
+-----------------------------------------------------------------------
+### Lançamentos de jogos ao longo do tempo(Período de 2017-2019)
+
+```{r}
+dados_anos <- dados_steam %>%
+  group_by(Ano = format.Date(data_lancamento,"%Y-%m-01")) %>%
+  summarise(Jogos = n_distinct(id))
+
+dados_anos$Ano <- as.Date(dados_anos$Ano)
+ hchart(dados_anos, type = "line",
+             hcaes(x = Ano,
+                   y = Jogos)) %>%
+        hc_yAxis(opposite = FALSE,
+                 labels = list(format = "{value}")) %>%
+       
+        hc_tooltip(pointFormat = 'Jogos lançados : {point.y:.0f} ') %>%
+        hc_plotOptions("line" = list( showInLegend = FALSE
+                                      , dataLabels = list( enabled = TRUE
+                                                           , rotation = 0
+                                                           , style = list( fontSize = "10px")
+                                                           , color = "black"))) 
+```
+
+Column 
+-----------------------------------------------------------------------
+### Mapa de Nuvens {data-width=500}
+
+```{r}
+top_100 <- dados_steam %>%
+  select(Jogo = nome, Vendas = copias_vendidas)%>%
+  arrange(desc(Vendas)) %>%
+  head(100)
+
+
+
+wordcloud2(data = top_100, size = 1.3, 
+           #shape = "oval",
+           rotateRatio = 0.5,
+           minSize = 0.1,
+           ellipticity = 0.9, color =  cores[15:115])
+
+```
+
+### Dispersão de notas por categoria de jogos {data-width=700}
+```{r}
+dados_categoria <- dados_steam %>%
+  group_by(Categoria = genero)%>%
+  summarise(Media = round(mean(notas_positivas),0),
+            Jogos = n_distinct(id))
+
+highchart() %>%
+  hc_add_series(
+    data = dados_categoria,
+    mapping = hcaes(
+      y = Jogos,
+      x = Media, 
+      size = Media, 
+      group = Categoria
+      
+    ),maxSize = "35%",
+    type = "scatter"
+  ) %>% hc_tooltip(pointFormat = 'Jogos: {point.y} / Media de notas positivas recebidas: {point.x}') %>% 
+  hc_legend( align = "left",
+    verticalAlign = "top",
+    layout = "vertical",
+    x = 0,
+    y = 0) %>%
+  hc_colors(cores[15:115])
+
+```
+
+
+Row 
+-----------------------------------------------------------------------
+### Principais Publisher's com mais lançamento durante o período
+```{r}
+dados_publisher <- dados_steam %>%
+  group_by(Publisher = publisher)%>%
+  summarise(Jogos = n()) %>%
+  arrange(desc(Jogos)) %>%
+  head(10)
+
+hc <- highchart() %>%
+  hc_xAxis(categories = as.list(dados_publisher$Publisher)) %>%
+  hc_legend(enabled = FALSE) %>%
+  hc_plotOptions(
+    series = list(
+      boderWidth = 0,
+      dataLabels = list(enabled = TRUE)
+    )
+  ) %>%
+  hc_add_series(
+    data = dados_publisher$Jogos
+    , type = "bar"
+  ) %>%
+  hc_colors("#696969")
+
+hc
+```
+
+
+2017 
+===================================== 
+Row 
+-----------------------------------------------------------------
+### <b>Jogos Lançados</b>
+```{r}
+total_jogos_2017 <- dados_steam %>% filter(data_lancamento >= '2017-01-01' & data_lancamento <= '2017-12-31')
+
+valueBox(nrow(total_jogos_2017), icon = "ion-steam", color = "#4169E1")
+```
+
+### <b>Jogos para Windonws</b>
+```{r}
+total_w_17 <- total_w %>% filter(data_lancamento >= "2017-01-01" & data_lancamento <= "2017-12-31")
+valueBox(nrow(total_w_17), icon = "ion-social-windows", color = "#00FA9A")
+```
+
+### <b>Jogos para Linux</b>
+```{r}
+total_l_17 <- total_l %>% filter(data_lancamento >= "2017-01-01" & data_lancamento <= "2017-12-31")
+valueBox(nrow(total_l_17), icon = "ion-social-tux", color = "#A9A9A9")
+```
+
+### <b>Jogos para Mac</b>
+```{r}
+total_m_17 <- total_m %>% filter(data_lancamento >= "2017-01-01" & data_lancamento <= "2017-12-31")
+valueBox(nrow(total_m_17),icon = "ion-social-apple", color = "#A020F0")
+```
+
+Row 
+-----------------------------------------------------------------------
+### Lançamentos de jogos ao longo do tempo(Período de 2017-2019)
+
+```{r}
+dados_steam <- backup %>% filter(data_lancamento >= "2017-01-01" & data_lancamento <= "2017-12-31")
+dados_anos <- dados_steam %>%
+  group_by(Ano = format.Date(data_lancamento,"%Y-%m-01")) %>%
+  summarise(Jogos = n_distinct(id))
+
+dados_anos$Ano <- as.Date(dados_anos$Ano)
+ hchart(dados_anos, type = "line",
+             hcaes(x = Ano,
+                   y = Jogos)) %>%
+        hc_yAxis(opposite = FALSE,
+                 labels = list(format = "{value}")) %>%
+       
+        hc_tooltip(pointFormat = 'Jogos lançados : {point.y:.0f} ') %>%
+        hc_plotOptions("line" = list( showInLegend = FALSE
+                                      , dataLabels = list( enabled = TRUE
+                                                           , rotation = 0
+                                                           , style = list( fontSize = "10px")
+                                                           , color = "black"))) 
+```
+
+Column 
+-----------------------------------------------------------------------
+### Mapa de Nuvens {data-width=500}
+
+```{r}
+top_100 <- dados_steam %>%
+  select(Jogo = nome, Vendas = copias_vendidas)%>%
+  arrange(desc(Vendas)) %>%
+  head(100)
+
+
+
+
+wordcloud2(data = top_100, size = 1.3, 
+           #shape = "oval",
+           rotateRatio = 0.5,
+           minSize = 0.1,
+           ellipticity = 0.9, color =  cores[15:115])
+
+```
+
+### Dispersão de notas por categoria de jogos {data-width=700}
+```{r}
+dados_categoria <- dados_steam %>%
+  group_by(Categoria = genero)%>%
+  summarise(Media = round(mean(notas_positivas),0),
+            Jogos = n_distinct(id))
+
+highchart() %>%
+  hc_add_series(
+    data = dados_categoria,
+    mapping = hcaes(
+      y = Jogos,
+      x = Media, 
+      size = Media, 
+      group = Categoria
+      
+    ),maxSize = "35%",
+    type = "scatter"
+  ) %>% hc_tooltip(pointFormat = 'Jogos: {point.y} / Media de notas positivas recebidas: {point.x}') %>% 
+  hc_legend( align = "left",
+    verticalAlign = "top",
+    layout = "vertical",
+    x = 0,
+    y = 0) %>%
+  hc_colors(cores[15:115])
+
+```
+
+
+Row 
+-----------------------------------------------------------------------
+### Principais Publisher's com mais lançamento durante o período
+```{r}
+dados_publisher <- dados_steam %>%
+  group_by(Publisher = publisher)%>%
+  summarise(Jogos = n()) %>%
+  arrange(desc(Jogos)) %>%
+  head(10)
+
+hc <- highchart() %>%
+  hc_xAxis(categories = as.list(dados_publisher$Publisher)) %>%
+  hc_legend(enabled = FALSE) %>%
+  hc_plotOptions(
+    series = list(
+      boderWidth = 0,
+      dataLabels = list(enabled = TRUE)
+    )
+  ) %>%
+  hc_add_series(
+    data = dados_publisher$Jogos
+    , type = "bar"
+  ) %>%
+  hc_colors("#696969")
+
+hc
+```
+
+
+
+
+2018 
+===================================== 
+Row 
+-----------------------------------------------------------------
+### <b>Jogos Lançados</b>
+```{r}
+total_jogos_2018 <- backup %>% filter(data_lancamento >= '2018-01-01' & data_lancamento <= '2018-12-31')
+
+valueBox(nrow(total_jogos_2018), icon = "ion-steam", color = "#4169E1")
+```
+
+### <b>Jogos para Windonws</b>
+```{r}
+total_w_18 <- total_w %>% filter(data_lancamento >= "2018-01-01" & data_lancamento <= "2018-12-31")
+valueBox(nrow(total_w_18), icon = "ion-social-windows", color = "#00FA9A")
+```
+
+### <b>Jogos para Linux</b>
+```{r}
+total_l_18 <- total_l %>% filter(data_lancamento >= "2018-01-01" & data_lancamento <= "2018-12-31")
+valueBox(nrow(total_l_18), icon = "ion-social-tux", color = "#A9A9A9")
+```
+
+### <b>Jogos para Mac</b>
+```{r}
+total_m_18 <- total_m %>% filter(data_lancamento >= "2018-01-01" & data_lancamento <= "2018-12-31")
+valueBox(nrow(total_m_18),icon = "ion-social-apple", color = "#A020F0")
+```
+
+Row 
+-----------------------------------------------------------------------
+### Lançamentos de jogos ao longo do tempo(Período de 2018-2019)
+
+```{r}
+dados_steam <- backup %>% filter(data_lancamento >= "2018-01-01" & data_lancamento <= "2018-12-31")
+dados_anos <- dados_steam %>%
+  group_by(Ano = format.Date(data_lancamento,"%Y-%m-01")) %>%
+  summarise(Jogos = n_distinct(id))
+
+dados_anos$Ano <- as.Date(dados_anos$Ano)
+ hchart(dados_anos, type = "line",
+             hcaes(x = Ano,
+                   y = Jogos)) %>%
+        hc_yAxis(opposite = FALSE,
+                 labels = list(format = "{value}")) %>%
+       
+        hc_tooltip(pointFormat = 'Jogos lançados : {point.y:.0f} ') %>%
+        hc_plotOptions("line" = list( showInLegend = FALSE
+                                      , dataLabels = list( enabled = TRUE
+                                                           , rotation = 0
+                                                           , style = list( fontSize = "10px")
+                                                           , color = "black"))) 
+```
+
+Column 
+-----------------------------------------------------------------------
+### Mapa de Nuvens {data-width=500}
+
+```{r}
+top_100 <- dados_steam %>%
+  select(Jogo = nome, Vendas = copias_vendidas)%>%
+  arrange(desc(Vendas)) %>%
+  head(100)
+
+
+
+wordcloud2(data = top_100, size = 1.3, 
+           #shape = "oval",
+           rotateRatio = 0.5,
+           minSize = 0.1,
+           ellipticity = 0.9, color =  cores[15:115])
+
+```
+
+### Dispersão de notas por categoria de jogos {data-width=700}
+```{r}
+dados_categoria <- dados_steam %>%
+  group_by(Categoria = genero)%>%
+  summarise(Media = round(mean(notas_positivas),0),
+            Jogos = n_distinct(id))
+
+highchart() %>%
+  hc_add_series(
+    data = dados_categoria,
+    mapping = hcaes(
+      y = Jogos,
+      x = Media, 
+      size = Media, 
+      group = Categoria
+      
+    ),maxSize = "35%",
+    type = "scatter"
+  ) %>% hc_tooltip(pointFormat = 'Jogos: {point.y} / Media de notas positivas recebidas: {point.x}') %>% 
+  hc_legend( align = "left",
+    verticalAlign = "top",
+    layout = "vertical",
+    x = 0,
+    y = 0) %>%
+  hc_colors(cores[15:115])
+
+```
+
+
+Row 
+-----------------------------------------------------------------------
+### Principais Publisher's com mais lançamento durante o período
+```{r}
+dados_publisher <- dados_steam %>%
+  group_by(Publisher = publisher)%>%
+  summarise(Jogos = n()) %>%
+  arrange(desc(Jogos)) %>%
+  head(10)
+
+hc <- highchart() %>%
+  hc_xAxis(categories = as.list(dados_publisher$Publisher)) %>%
+  hc_legend(enabled = FALSE) %>%
+  hc_plotOptions(
+    series = list(
+      boderWidth = 0,
+      dataLabels = list(enabled = TRUE)
+    )
+  ) %>%
+  hc_add_series(
+    data = dados_publisher$Jogos
+    , type = "bar"
+  ) %>%
+  hc_colors("#696969")
+
+hc
+```
+
+2019 
+===================================== 
+Row 
+-----------------------------------------------------------------
+### <b>Jogos Lançados</b>
+```{r}
+total_jogos_2019 <- backup %>% filter(data_lancamento >= '2019-01-01' & data_lancamento <= '2019-12-31')
+
+valueBox(nrow(total_jogos_2019), icon = "ion-steam", color = "#4169E1")
+```
+
+### <b>Jogos para Windonws</b>
+```{r}
+total_w_19 <- total_w %>% filter(data_lancamento >= "2019-01-01" & data_lancamento <= "2019-12-31")
+valueBox(nrow(total_w_19), icon = "ion-social-windows", color = "#00FA9A")
+```
+
+### <b>Jogos para Linux</b>
+```{r}
+total_l_19 <- total_l %>% filter(data_lancamento >= "2019-01-01" & data_lancamento <= "2019-12-31")
+valueBox(nrow(total_l_19), icon = "ion-social-tux", color = "#A9A9A9")
+```
+
+### <b>Jogos para Mac</b>
+```{r}
+total_m_19 <- total_m %>% filter(data_lancamento >= "2019-01-01" & data_lancamento <= "2019-12-31")
+valueBox(nrow(total_m_19),icon = "ion-social-apple", color = "#A020F0")
+```
+
+Row 
+-----------------------------------------------------------------------
+### Lançamentos de jogos ao longo do tempo(Período de 2019-2019)
+
+```{r}
+dados_steam <- backup %>% filter(data_lancamento >= "2019-01-01" & data_lancamento <= "2019-12-31")
+dados_anos <- dados_steam %>%
+  group_by(Ano = format.Date(data_lancamento,"%Y-%m-01")) %>%
+  summarise(Jogos = n_distinct(id))
+
+dados_anos$Ano <- as.Date(dados_anos$Ano)
+ hchart(dados_anos, type = "line",
+             hcaes(x = Ano,
+                   y = Jogos)) %>%
+        hc_yAxis(opposite = FALSE,
+                 labels = list(format = "{value}")) %>%
+       
+        hc_tooltip(pointFormat = 'Jogos lançados : {point.y:.0f} ') %>%
+        hc_plotOptions("line" = list( showInLegend = FALSE
+                                      , dataLabels = list( enabled = TRUE
+                                                           , rotation = 0
+                                                           , style = list( fontSize = "10px")
+                                                           , color = "black"))) 
+```
+
+Column 
+-----------------------------------------------------------------------
+### Mapa de Nuvens {data-width=500}
+
+```{r}
+top_100 <- dados_steam %>%
+  select(Jogo = nome, Vendas = copias_vendidas)%>%
+  arrange(desc(Vendas)) %>%
+  head(100)
+
+
+wordcloud2(data = top_100, size = 1.3, 
+           #shape = "oval",
+           rotateRatio = 0.5,
+           minSize = 0.1,
+           ellipticity = 0.9, color =  cores[15:115])
+
+```
+
+### Dispersão de notas por categoria de jogos {data-width=700}
+```{r}
+dados_categoria <- dados_steam %>%
+  group_by(Categoria = genero)%>%
+  summarise(Media = round(mean(notas_positivas),0),
+            Jogos = n_distinct(id))
+
+highchart() %>%
+  hc_add_series(
+    data = dados_categoria,
+    mapping = hcaes(
+      y = Jogos,
+      x = Media, 
+      size = Media, 
+      group = Categoria
+      
+    ),maxSize = "35%",
+    type = "scatter"
+  ) %>% hc_tooltip(pointFormat = 'Jogos: {point.y} / Media de notas positivas recebidas: {point.x}') %>% 
+  hc_legend( align = "left",
+    verticalAlign = "top",
+    layout = "vertical",
+    x = 0,
+    y = 0) %>%
+  hc_colors(cores[15:115])
+
+```
+
+
+Row 
+-----------------------------------------------------------------------
+### Principais Publisher's com mais lançamento durante o período
+```{r}
+dados_publisher <- dados_steam %>%
+  group_by(Publisher = publisher)%>%
+  summarise(Jogos = n()) %>%
+  arrange(desc(Jogos)) %>%
+  head(10)
+
+hc <- highchart() %>%
+  hc_xAxis(categories = as.list(dados_publisher$Publisher)) %>%
+  hc_legend(enabled = FALSE) %>%
+  hc_plotOptions(
+    series = list(
+      boderWidth = 0,
+      dataLabels = list(enabled = TRUE)
+    )
+  ) %>%
+  hc_add_series(
+    data = dados_publisher$Jogos
+    , type = "bar"
+  ) %>%
+  hc_colors("#696969")
+
+hc
+```
